@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Advanced Drawing Application</title>
+    <style>
+        :root {
+            --bg-color: #ffffff;
+            --text-color: #000000;
+            --toolbar-bg: rgba(255, 255, 255, 0.9);
+            --toolbar-shadow: rgba(0, 0, 0, 0.2);
+        }
+
+        body.dark-mode {
+            --bg-color: #121212;
+            --text-color: #ffffff;
+            --toolbar-bg: rgba(18, 18, 18, 0.9);
+            --toolbar-shadow: rgba(255, 255, 255, 0.2);
+        }
+
+        body {
+            margin: 0;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            transition: background-color 0.3s, color 0.3s;
+            overflow: hidden;
+        }
+
+        #toolbar {
+            position: fixed;
+            top: 10px;
+            left: 10px;
+            z-index: 10;
+            background: var(--toolbar-bg);
+            padding: 10px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px var(--toolbar-shadow);
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .toolbar-section {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 1;
+            display: block;
+        }
+
+        #color-picker {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            border: none;
+            cursor: pointer;
+        }
+
+        #brush-select, #layer-select {
+            padding: 5px;
+            border-radius: 4px;
+        }
+
+        #dark-mode-toggle {
+            padding: 5px 10px;
+            border: none;
+            cursor: pointer;
+            background-color: var(--text-color);
+            color: var(--bg-color);
+            border-radius: 5px;
+            transition: background-color 0.3s, color 0.3s;
+        }
+    </style>
+</head>
+<body>
+    <div id="toolbar">
+        <!-- Brush Settings -->
+        <div class="toolbar-section">
+            <label for="brush-select">Brush:</label>
+            <select id="brush-select">
+                <option value="normal">Normal Brush</option>
+                <option value="eraser">Eraser</option>
+            </select>
+        </div>
+        <div class="toolbar-section">
+            <label for="brush-size">Size:</label>
+            <input type="range" id="brush-size" min="1" max="50" value="10">
+        </div>
+        <div class="toolbar-section">
+            <label for="color-picker">Color:</label>
+            <input type="color" id="color-picker" value="#000000">
+        </div>
+
+        <!-- Layer Controls -->
+        <div class="toolbar-section">
+            <button id="add-layer">Add Layer</button>
+            <button id="delete-layer">Delete Layer</button>
+            <select id="layer-select"></select>
+        </div>
+
+        <!-- Dark Mode -->
+        <button id="dark-mode-toggle">Toggle Dark Mode</button>
+    </div>
+    <script>
+        const toolbar = document.getElementById('toolbar');
+        const brushSize = document.getElementById('brush-size');
+        const colorPicker = document.getElementById('color-picker');
+        const brushSelect = document.getElementById('brush-select');
+        const darkModeToggle = document.getElementById('dark-mode-toggle');
+        const addLayerButton = document.getElementById('add-layer');
+        const deleteLayerButton = document.getElementById('delete-layer');
+        const layerSelect = document.getElementById('layer-select');
+
+        const canvasContainer = document.body;
+        const layers = [];
+        let currentLayer = null;
+
+        // Initialize first layer
+        function createLayer() {
+            const canvas = document.createElement('canvas');
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            canvas.style.zIndex = layers.length + 1;
+            canvas.style.position = 'absolute';
+            canvasContainer.appendChild(canvas);
+
+            layers.push(canvas);
+            currentLayer = canvas;
+
+            // Update layer dropdown
+            const option = document.createElement('option');
+            option.value = layers.length - 1;
+            option.textContent = `Layer ${layers.length}`;
+            layerSelect.appendChild(option);
+            layerSelect.value = layers.length - 1;
+
+            return canvas.getContext('2d');
+        }
+
+        // Create the initial layer
+        let ctx = createLayer();
+
+        // Add new layer
+        addLayerButton.addEventListener('click', () => {
+            ctx = createLayer();
+        });
+
+        // Delete the selected layer
+        deleteLayerButton.addEventListener('click', () => {
+            if (layers.length <= 1) return alert('Cannot delete the only layer!');
+            const index = layerSelect.value;
+            const layerToRemove = layers[index];
+            canvasContainer.removeChild(layerToRemove);
+            layers.splice(index, 1);
+
+            // Update layer dropdown
+            layerSelect.innerHTML = '';
+            layers.forEach((_, i) => {
+                const option = document.createElement('option');
+                option.value = i;
+                option.textContent = `Layer ${i + 1}`;
+                layerSelect.appendChild(option);
+            });
+
+            layerSelect.value = layers.length - 1;
+            currentLayer = layers[layers.length - 1];
+            ctx = currentLayer.getContext('2d');
+        });
+
+        // Switch between layers
+        layerSelect.addEventListener('change', (e) => {
+            const index = e.target.value;
+            currentLayer = layers[index];
+            ctx = currentLayer.getContext('2d');
+        });
+
+        // Drawing variables
+        let isDrawing = false;
+        let lastX = 0, lastY = 0;
+
+        // Start drawing
+        currentLayer.addEventListener('pointerdown', (e) => {
+            isDrawing = true;
+            lastX = e.offsetX;
+            lastY = e.offsetY;
+        });
+
+        // Stop drawing
+        currentLayer.addEventListener('pointerup', () => {
+            isDrawing = false;
+        });
+
+        // Draw
+        currentLayer.addEventListener('pointermove', (e) => {
+            if (!isDrawing) return;
+
+            const pressure = e.pressure || 0.5;
+            ctx.lineWidth = pressure * brushSize.value;
+
+            if (brushSelect.value === 'eraser') {
+                ctx.globalCompositeOperation = 'destination-out';
+            } else {
+                ctx.globalCompositeOperation = 'source-over';
+            }
+
+            ctx.strokeStyle = colorPicker.value;
+            ctx.lineCap = 'round';
+
+            ctx.beginPath();
+            ctx.moveTo(lastX, lastY);
+            ctx.lineTo(e.offsetX, e.offsetY);
+            ctx.stroke();
+
+            [lastX, lastY] = [e.offsetX, e.offsetY];
+        });
+
+        // Dark mode toggle
+        darkModeToggle.addEventListener('click', () => {
+            document.body.classList.toggle('dark-mode');
+        });
+
+        // Resize canvas on window resize
+        window.addEventListener('resize', () => {
+            layers.forEach(canvas => {
+                const context = canvas.getContext('2d');
+                const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+                canvas.width = window.innerWidth;
+                canvas.height = window.innerHeight;
+                context.putImageData(imageData, 0, 0);
+            });
+        });
+    </script>
+</body>
+</html>
