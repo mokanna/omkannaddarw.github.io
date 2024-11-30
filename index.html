@@ -3,47 +3,57 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Advanced Drawing Application</title>
+    <title>Drawing Application</title>
     <style>
         :root {
             --bg-color: #ffffff;
             --text-color: #000000;
-            --toolbar-bg: rgba(255, 255, 255, 0.9);
-            --toolbar-shadow: rgba(0, 0, 0, 0.2);
         }
-        body.dark-mode {
-            --bg-color: #121212;
-            --text-color: #ffffff;
-            --toolbar-bg: rgba(18, 18, 18, 0.9);
-            --toolbar-shadow: rgba(255, 255, 255, 0.2);
+
+        body, html {
+            height: 100%;
+            margin: 0;
         }
 
         body {
-            margin: 0;
             background-color: var(--bg-color);
             color: var(--text-color);
-            transition: background-color 0.3s, color 0.3s;
-            overflow: hidden;
+            font-family: Arial, sans-serif;
+        }
+
+        body.dark-mode {
+            --bg-color: #333333;
+            --text-color: #ffffff;
         }
 
         #toolbar {
             position: fixed;
-            top: 10px;
-            left: 10px;
-            z-index: 10;
-            background: var(--toolbar-bg);
+            top: 0;
+            left: 0;
+            bottom: 0;
+            width: 200px;
+            background-color: var(--bg-color);
             padding: 10px;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px var(--toolbar-shadow);
             display: flex;
             flex-direction: column;
-            gap: 10px;
+            gap: 20px;
+            border-right: 1px solid var(--text-color);
+            z-index: 2;
+            justify-content: flex-start;
+            align-items: flex-start;
         }
 
         .toolbar-section {
             display: flex;
-            align-items: center;
+            flex-direction: column;
+            align-items: flex-start;
             gap: 10px;
+            width: 100%;
+        }
+
+        button, select, input[type="range"], #color-picker {
+            width: 100%;
+            box-sizing: border-box;
         }
 
         canvas {
@@ -51,30 +61,13 @@
             top: 0;
             left: 0;
             z-index: 1;
-            display: block;
         }
 
-        #color-picker {
-            width: 40px;
-            height: 40px;
-            border-radius: 50%;
-            border: none;
-            cursor: pointer;
-        }
-
-        #brush-select, #layer-select {
-            padding: 5px;
-            border-radius: 4px;
-        }
-
-        #dark-mode-toggle {
-            padding: 5px 10px;
-            border: none;
-            cursor: pointer;
-            background-color: var(--text-color);
-            color: var(--bg-color);
-            border-radius: 5px;
-            transition: background-color 0.3s, color 0.3s;
+        #canvas-container {
+            position: relative;
+            width: calc(100vw - 200px);
+            height: 100vh;
+            margin-left: 200px;
         }
     </style>
 </head>
@@ -83,150 +76,173 @@
         <div class="toolbar-section">
             <label for="brush-select">Brush:</label>
             <select id="brush-select">
-                <option value="normal">Normal Brush</option>
+                <option value="normal">Normal</option>
                 <option value="eraser">Eraser</option>
-                <option value="spray">Spray Brush</option>
-                <option value="blend">Blend Brush</option>
+                <option value="spray">Spray</option>
+                <option value="blend">Blend</option>
             </select>
         </div>
+
         <div class="toolbar-section">
             <label for="brush-size">Size:</label>
-            <input type="range" id="brush-size" min="1" max="50" value="10">
+            <input type="range" id="brush-size" min="1" max="50" value="5">
         </div>
+
         <div class="toolbar-section">
             <label for="color-picker">Color:</label>
             <input type="color" id="color-picker" value="#000000">
         </div>
+
         <div class="toolbar-section">
             <button id="add-layer">Add Layer</button>
             <button id="delete-layer">Delete Layer</button>
             <select id="layer-select"></select>
         </div>
+
         <div class="toolbar-section">
             <button id="undo">Undo</button>
-            <button id="redo" disabled>Redo</button>
+            <button id="redo">Redo</button>
         </div>
-        <button id="dark-mode-toggle">Toggle Dark Mode</button>
+
+        <div class="toolbar-section">
+            <button id="dark-mode-toggle">Dark Mode</button>
+        </div>
+
+        <div class="toolbar-section">
+            <button id="clear-canvas">Clear Canvas</button>
+        </div>
     </div>
+
+    <div id="canvas-container"></div>
+
     <script>
-        const toolbar = document.getElementById('toolbar');
+        // Initialize variables
+        const canvasContainer = document.getElementById('canvas-container');
+        const brushSelect = document.getElementById('brush-select');
         const brushSize = document.getElementById('brush-size');
         const colorPicker = document.getElementById('color-picker');
-        const brushSelect = document.getElementById('brush-select');
-        const darkModeToggle = document.getElementById('dark-mode-toggle');
-        const addLayerButton = document.getElementById('add-layer');
-        const deleteLayerButton = document.getElementById('delete-layer');
+        const addLayerBtn = document.getElementById('add-layer');
+        const deleteLayerBtn = document.getElementById('delete-layer');
         const layerSelect = document.getElementById('layer-select');
-        const undoButton = document.getElementById('undo');
-        const redoButton = document.getElementById('redo');
+        const undoBtn = document.getElementById('undo');
+        const redoBtn = document.getElementById('redo');
+        const darkModeToggle = document.getElementById('dark-mode-toggle');
+        const clearCanvasBtn = document.getElementById('clear-canvas');
 
-        const canvasContainer = document.body;
         let layers = [];
-        let currentLayerIndex = 0;
+        let currentLayerIndex = -1;
         let isDrawing = false;
-        let lastX = 0, lastY = 0;
+        let lastX = 0;
+        let lastY = 0;
 
+        // Layer class
         class Layer {
-            constructor(zIndex) {
+            constructor(index) {
                 this.canvas = document.createElement('canvas');
-                this.canvas.width = window.innerWidth;
+                this.canvas.width = window.innerWidth - 200;
                 this.canvas.height = window.innerHeight;
-                this.canvas.style.zIndex = zIndex;
-                this.canvas.style.position = 'absolute';
-                canvasContainer.appendChild(this.canvas);
                 this.ctx = this.canvas.getContext('2d');
                 this.history = [];
-                this.historyIndex = -1;
+                this.redoHistory = [];
+                this.index = index;
+                
+                canvasContainer.appendChild(this.canvas);
+                this.saveState();
             }
 
             saveState() {
-                this.history = this.history.slice(0, this.historyIndex + 1);
-                this.history.push(this.ctx.getImageData(0, 0, this.canvas.width, this.canvas.height));
-                this.historyIndex++;
-                this.updateRedoButton();
+                this.history.push(this.canvas.toDataURL());
+                this.redoHistory = [];
+                updateUndoRedoButtons();
             }
 
-            restoreState(index) {
-                if (index >= 0 && index < this.history.length) {
-                    this.historyIndex = index;
-                    this.ctx.putImageData(this.history[this.historyIndex], 0, 0);
-                    this.updateRedoButton();
+            undo() {
+                if (this.history.length > 1) {
+                    this.redoHistory.push(this.history.pop());
+                    this.loadState(this.history[this.history.length - 1]);
+                    updateUndoRedoButtons();
                 }
             }
 
-            updateRedoButton() {
-                redoButton.disabled = this.historyIndex === this.history.length - 1;
+            redo() {
+                if (this.redoHistory.length > 0) {
+                    const state = this.redoHistory.pop();
+                    this.history.push(state);
+                    this.loadState(state);
+                    updateUndoRedoButtons();
+                }
+            }
+
+            loadState(state) {
+                const img = new Image();
+                img.src = state;
+                img.onload = () => {
+                    this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+                    this.ctx.drawImage(img, 0, 0);
+                };
             }
         }
 
-        function createLayer() {
-            const newLayer = new Layer(layers.length + 1);
-            layers.push(newLayer);
+        // Initialize first layer
+        function addLayer() {
+            const layer = new Layer(layers.length);
+            layers.push(layer);
             currentLayerIndex = layers.length - 1;
-            newLayer.saveState();
-            updateLayerDropdown();
-            return newLayer;
+            updateLayerSelect();
         }
 
-        function updateLayerDropdown() {
+        // Update layer select dropdown
+        function updateLayerSelect() {
             layerSelect.innerHTML = '';
             layers.forEach((layer, index) => {
                 const option = document.createElement('option');
                 option.value = index;
                 option.textContent = `Layer ${index + 1}`;
+                option.selected = index === currentLayerIndex;
                 layerSelect.appendChild(option);
             });
-            layerSelect.value = currentLayerIndex;
         }
 
-        function draw(x, y, pressure) {
-            const currentLayer = layers[currentLayerIndex];
-            const ctx = currentLayer.ctx;
-            const dynamicBrushSize = pressure * brushSize.value;
+        // Drawing functions
+        function startDrawing(e) {
+            isDrawing = true;
+            [lastX, lastY] = [e.offsetX, e.offsetY];
+        }
 
-            if (brushSelect.value === 'spray') {
-                // Spray Brush Logic
-                for (let i = 0; i < 20; i++) {
-                    const offsetX = (Math.random() - 0.5) * dynamicBrushSize * 2;
-                    const offsetY = (Math.random() - 0.5) * dynamicBrushSize * 2;
-                    ctx.fillStyle = colorPicker.value;
-                    ctx.fillRect(x + offsetX, y + offsetY, 1, 1);
-                }
-            } else if (brushSelect.value === 'blend') {
-                // Blend Brush Logic
-                const blendSize = dynamicBrushSize * 2;
-                const imageData = ctx.getImageData(x - blendSize / 2, y - blendSize / 2, blendSize, blendSize);
-                for (let i = 0; i < imageData.data.length; i += 4) {
-                    imageData.data[i] = (imageData.data[i] + parseInt(colorPicker.value.slice(1, 3), 16)) / 2; // Red
-                    imageData.data[i + 1] = (imageData.data[i + 1] + parseInt(colorPicker.value.slice(3, 5), 16)) / 2; // Green
-                    imageData.data[i + 2] = (imageData.data[i + 2] + parseInt(colorPicker.value.slice(5, 7), 16)) / 2; // Blue
-                }
-                ctx.putImageData(imageData, x - blendSize / 2, y - blendSize / 2);
-            } else {
-                ctx.lineWidth = dynamicBrushSize;
-                ctx.strokeStyle = colorPicker.value;
-                ctx.lineCap = 'round';
+        function draw(e) {
+            if (!isDrawing) return;
+            
+            const ctx = layers[currentLayerIndex].ctx;
+            const pressure = e.pressure || 1;
+            
+            ctx.beginPath();
+            ctx.lineWidth = brushSize.value * pressure;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
 
-                if (brushSelect.value === 'eraser') {
-                    ctx.globalCompositeOperation = 'destination-out';
-                } else {
+            switch (brushSelect.value) {
+                case 'normal':
+                    ctx.strokeStyle = colorPicker.value;
                     ctx.globalCompositeOperation = 'source-over';
-                }
-
-                ctx.beginPath();
-                ctx.moveTo(lastX, lastY);
-                ctx.lineTo(x, y);
-                ctx.stroke();
+                    break;
+                case 'eraser':
+                    ctx.strokeStyle = '#ffffff';
+                    ctx.globalCompositeOperation = 'destination-out';
+                    break;
+                case 'spray':
+                    sprayEffect(e.offsetX, e.offsetY);
+                    return;
+                case 'blend':
+                    ctx.globalCompositeOperation = 'multiply';
+                    ctx.strokeStyle = colorPicker.value;
+                    break;
             }
 
-            [lastX, lastY] = [x, y];
-        }
+            ctx.moveTo(lastX, lastY);
+            ctx.lineTo(e.offsetX, e.offsetY);
+            ctx.stroke();
 
-        function startDrawing(x, y, pressure) {
-            isDrawing = true;
-            lastX = x;
-            lastY = y;
-            draw(x, y, pressure);
+            [lastX, lastY] = [e.offsetX, e.offsetY];
         }
 
         function stopDrawing() {
@@ -236,73 +252,89 @@
             }
         }
 
-        addLayerButton.addEventListener('click', () => {
-            createLayer();
-        });
-
-        deleteLayerButton.addEventListener('click', () => {
-            if (layers.length <= 1) {
-                alert('Cannot delete the only layer!');
-                return;
+        function sprayEffect(x, y) {
+            const ctx = layers[currentLayerIndex].ctx;
+            const density = brushSize.value;
+            
+            ctx.fillStyle = colorPicker.value;
+            for (let i = 0; i < density * 2; i++) {
+                const offsetX = getRandomInt(-density, density);
+                const offsetY = getRandomInt(-density, density);
+                ctx.fillRect(x + offsetX, y + offsetY, 1, 1);
             }
-            const index = layerSelect.value;
-            const layerToRemove = layers[index];
-            canvasContainer.removeChild(layerToRemove.canvas);
-            layers.splice(index, 1);
-            currentLayerIndex = Math.max(0, layers.length - 1);
-            updateLayerDropdown();
+        }
+
+        function getRandomInt(min, max) {
+            return Math.floor(Math.random() * (max - min + 1)) + min;
+        }
+
+        // Clear the current layer's canvas
+        function clearCanvas() {
+            if (currentLayerIndex >= 0) {
+                layers[currentLayerIndex].ctx.clearRect(0, 0, layers[currentLayerIndex].canvas.width, layers[currentLayerIndex].canvas.height);
+                layers[currentLayerIndex].saveState();
+            }
+        }
+
+        // Event listeners
+        addLayerBtn.addEventListener('click', addLayer);
+        deleteLayerBtn.addEventListener('click', () => {
+            if (layers.length > 1) {
+                canvasContainer.removeChild(layers[currentLayerIndex].canvas);
+                layers.splice(currentLayerIndex, 1);
+                currentLayerIndex = Math.max(0, currentLayerIndex - 1);
+                updateLayerSelect();
+            }
         });
 
         layerSelect.addEventListener('change', (e) => {
-            currentLayerIndex = parseInt(e.target.value, 10);
+            currentLayerIndex = parseInt(e.target.value);
         });
 
-        undoButton.addEventListener('click', (e) => {
-            e.stopPropagation();
-            const currentLayer = layers[currentLayerIndex];
-            if (currentLayer.historyIndex > 0) {
-                currentLayer.restoreState(currentLayer.historyIndex - 1);
-            }
+        undoBtn.addEventListener('click', () => {
+            layers[currentLayerIndex].undo();
         });
 
-        redoButton.addEventListener('click', (e) => {
-            e.stopPropagation();
-            const currentLayer = layers[currentLayerIndex];
-            if (currentLayer.historyIndex < currentLayer.history.length - 1) {
-                currentLayer.restoreState(currentLayer.historyIndex + 1);
-            }
-        });
-
-        canvasContainer.addEventListener('pointerdown', (e) => {
-            if (e.target.tagName !== 'CANVAS') return;  // Prevent drawing if not on canvas
-            startDrawing(e.clientX, e.clientY, e.pressure || 0.5);
-        });
-
-        canvasContainer.addEventListener('pointerup', () => {
-            stopDrawing();
-        });
-
-        canvasContainer.addEventListener('pointermove', (e) => {
-            if (!isDrawing) return;
-            const rect = e.target.getBoundingClientRect();
-            const pressure = e.pressure || 0.5;
-            draw(e.clientX - rect.left, e.clientY - rect.top, pressure);
+        redoBtn.addEventListener('click', () => {
+            layers[currentLayerIndex].redo();
         });
 
         darkModeToggle.addEventListener('click', () => {
             document.body.classList.toggle('dark-mode');
         });
 
+        clearCanvasBtn.addEventListener('click', clearCanvas);
+
+        // Canvas event listeners
+        canvasContainer.addEventListener('pointerdown', startDrawing);
+        canvasContainer.addEventListener('pointermove', draw);
+        canvasContainer.addEventListener('pointerup', stopDrawing);
+        canvasContainer.addEventListener('pointerout', stopDrawing);
+
+        // Update undo/redo buttons
+        function updateUndoRedoButtons() {
+            if (currentLayerIndex >= 0) {
+                undoBtn.disabled = layers[currentLayerIndex].history.length <= 1;
+                redoBtn.disabled = layers[currentLayerIndex].redoHistory.length === 0;
+            }
+        }
+
+        // Window resize handler
         window.addEventListener('resize', () => {
             layers.forEach(layer => {
-                const imageData = layer.ctx.getImageData(0, 0, layer.canvas.width, layer.canvas.height);
-                layer.canvas.width = window.innerWidth;
+                const imageData = layer.canvas.toDataURL();
+                layer.canvas.width = window.innerWidth - 200;
                 layer.canvas.height = window.innerHeight;
-                layer.ctx.putImageData(imageData, 0, 0);
+                const img = new Image();
+                img.src = imageData;
+                img.onload = () => {
+                    layer.ctx.drawImage(img, 0, 0);
+                };
             });
         });
 
-        createLayer(); // Initialize with one layer
+        // Initialize the first layer
+        addLayer();
     </script>
 </body>
 </html>
